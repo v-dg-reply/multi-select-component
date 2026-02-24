@@ -42,18 +42,35 @@ export function FilterDropdown({
 }: FilterDropdownProps) {
     const [open, setOpen] = React.useState(false)
 
-    // "all"  = selected / all children selected
-    // "some" = some children selected (indeterminate → dash)
-    // "none" = not selected
+    // Recursively collect all descendant values of an option
+    const getAllDescendants = (option: FilterOption): string[] => {
+        const directChildren = options.filter(o => o.parentValue === option.value)
+        return directChildren.flatMap(child => [child.value, ...getAllDescendants(child)])
+    }
+
+    // Walk up parentValue chain to determine nesting depth (0 = top level)
+    const getDepth = (option: FilterOption): number => {
+        if (!option.parentValue) return 0
+        const parent = options.find(o => o.value === option.parentValue)
+        return parent ? 1 + getDepth(parent) : 1
+    }
+
+    // "all"  = item + all descendants selected
+    // "some" = item or some descendants selected (indeterminate → dash)
+    // "none" = nothing selected
     const getCheckState = (option: FilterOption): "none" | "some" | "all" => {
-        const children = options.filter(o => o.parentValue === option.value)
-        if (children.length === 0) {
+        const descendants = getAllDescendants(option)
+        if (descendants.length === 0) {
             return selected.includes(option.value) ? "all" : "none"
         }
-        const selectedChildren = children.filter(c => selected.includes(c.value))
-        if (selectedChildren.length === 0 && !selected.includes(option.value)) return "none"
-        if (selectedChildren.length === children.length && selected.includes(option.value)) return "all"
-        return "some"
+        const allSelected =
+            selected.includes(option.value) &&
+            descendants.every(v => selected.includes(v))
+        if (allSelected) return "all"
+        const anySelected =
+            selected.includes(option.value) ||
+            descendants.some(v => selected.includes(v))
+        return anySelected ? "some" : "none"
     }
 
     return (
@@ -88,23 +105,21 @@ export function FilterDropdown({
                             <CommandGroup>
                                 {options.map((option) => {
                                     const state = getCheckState(option)
+                                    const depth = getDepth(option)
+                                    const paddingLeft = 16 + depth * 20 // 16px base + 20px per level
                                     return (
                                         <CommandItem
                                             key={option.value}
                                             onSelect={() => {
-                                                const children = options
-                                                    .filter(o => o.parentValue === option.value)
-                                                    .map(o => o.value)
-                                                if (children.length > 0) {
-                                                    onToggle([option.value, ...children])
+                                                const descendants = getAllDescendants(option)
+                                                if (descendants.length > 0) {
+                                                    onToggle([option.value, ...descendants])
                                                 } else {
                                                     onToggle(option.value)
                                                 }
                                             }}
-                                            className={cn(
-                                                "flex items-center gap-3 py-3 px-4 cursor-pointer",
-                                                option.isSubItem && "pl-8"
-                                            )}
+                                            style={{ paddingLeft: `${paddingLeft}px` }}
+                                            className="flex items-center gap-3 py-2.5 pr-4 cursor-pointer"
                                         >
                                             <div
                                                 className={cn(
@@ -115,7 +130,11 @@ export function FilterDropdown({
                                                 {state === "all" && <Check className="h-3 w-3 text-white" />}
                                                 {state === "some" && <Minus className="h-3 w-3 text-white" />}
                                             </div>
-                                            <span className={state !== "none" ? "text-white" : "text-zinc-400"}>
+                                            <span className={cn(
+                                                state !== "none" ? "text-white" : "text-zinc-400",
+                                                depth === 0 && "font-medium",
+                                                depth >= 2 && "text-sm"
+                                            )}>
                                                 {option.label}
                                             </span>
                                         </CommandItem>
